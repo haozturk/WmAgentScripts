@@ -17,19 +17,16 @@ def htmlor( caller = ""):
     up = componentInfo(soft=['mcm','wtc','jira'])
     if not up.check(): return  
 
-    for backup in ['statuses.json','siteInfo.json','equalizor.json']:
-        print "copying",backup,"to old location"
-        os.system('env EOS_MGM_URL=root://eoscms.cern.ch eos cp %s/%s /afs/cern.ch/user/c/cmst2/www/unified/.'%(monitor_pub_dir, backup))
-        #os.system('cp %s/%s %s/.'%(monitor_dir, backup, monitor_pub_dir))
-
+    #for backup in ['statuses.json','siteInfo.json','equalizor.json']:
+    #    print "copying",backup,"to old location"
+    #    os.system('env EOS_MGM_URL=root://eoscms.cern.ch eos cp %s/%s /afs/cern.ch/user/c/cmst2/www/unified/.'%(monitor_pub_dir, backup))
+    #    #os.system('cp %s/%s %s/.'%(monitor_dir, backup, monitor_pub_dir))
     try:
         boost = json.loads(eosRead('%s/equalizor.json'%monitor_pub_dir))['modifications']
     except:
         boost = {}
-    cache = getWorkflows(reqmgr_url,'assignment-approved', details=True)
-    cache.extend( getWorkflows(reqmgr_url,'acquired', details=True) )
-    cache.extend( getWorkflows(reqmgr_url,'running-open', details=True) )
-    cache.extend( getWorkflows(reqmgr_url,'running-closed', details=True) )
+    #cache = getWorkflows(reqmgr_url,'assignment-approved', details=True)
+    cache = []
     def getWL( wfn ):
         cached = filter(lambda d : d['RequestName']==wfn, cache)
         if cached:
@@ -1103,11 +1100,6 @@ Worflow through (%d) <a href=logs/closor/last.log target=_blank>log</a> <a href=
         text+='<li> %s <a href="https://cms-site-readiness.web.cern.ch/cms-site-readiness/SiteReadiness/HTML/SiteReadinessReport.html#%s">SAM</a><br>'%( site, site )
     text += "</ul></div></li>"
 
-    text += site_div_header("Sites ready in agents")
-    for site in sorted(SI.sites_ready_in_agent):
-        text+='<li> %s <a href="https://cms-site-readiness.web.cern.ch/cms-site-readiness/SiteReadiness/HTML/SiteReadinessReport.html#%s">SAM</a><br>'%( site, site )
-    text += "</ul></div></li>"
-
 
     text += site_div_header("Approximate Free Tape")
     for mss in SI.storage:
@@ -1558,7 +1550,8 @@ remaining_bar_%s.draw(data_remain_%s, {title: '%s %s / %s [TB]'});
 
 
 if __name__ == "__main__":
-    htmlor()
+    #skip this function as it stucks
+    #htmlor()
     CI = closeoutInfo()
     CI.html()
 

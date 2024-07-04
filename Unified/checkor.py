@@ -230,7 +230,7 @@ def checkor(url, spec=None, options=None):
         max_per_round=options.limit
     if max_per_round and not spec: 
         print "limiting to",max_per_round,"this round"
-
+        """
         ##should be ordering by priority if you can
         ## order wfs with rank of wfname
         all_completed_plus = sorted(getWorkflows(url, 'completed' , details=True), key = lambda r : r['RequestPriority'])
@@ -239,6 +239,7 @@ def checkor(url, spec=None, options=None):
             return all_completed_plus.index( wfn ) if wfn in all_completed_plus else 0
         wfs = sorted( wfs, key = lambda wfo : rank( wfo.name ),reverse=True)
         if options.update: random.shuffle( wfs )
+        """
         wfs = wfs[:max_per_round]
 
     total_running_time = 1.*60. 
@@ -493,7 +494,7 @@ class CheckBuster(threading.Thread):
         assistance_tags = set()
 
         is_closing = True
-        stop_duplicate_check = False
+        stop_duplicate_check = True
 
         ## get it from somewhere
         bypass_checks = False
@@ -675,7 +676,8 @@ class CheckBuster(threading.Thread):
         if event_expected == None:
             sendEmail("missing member of the request","TotalInputEvents is missing from the workload of %s"% wfo.name)
             sendLog('checkor',"TotalInputEvents is missing from the workload of %s"% wfo.name, level='critical')
-            event_expected = 0 
+            event_expected = 0
+            assistance_tags.add('missingParam')
 
         ttype = 'Task' if 'TaskChain' in wfi.request else 'Step'
         it = 1
@@ -861,14 +863,14 @@ class CheckBuster(threading.Thread):
                 expectedL[output] = lumi_expected
 
 
-            output_event_expected = event_expected_per_task.get(task_outputs.get(output,'NoTaskFound'), event_expected)
+            #output_event_expected = event_expected_per_task.get(task_outputs.get(output,'NoTaskFound'), event_expected)
             
-            if output_event_expected:
-                expectedN[output] = output_event_expected
-                e_fraction = float(event_count) / float( output_event_expected )
-                if e_fraction > percent_completions[output]:
-                    percent_completions[output] = e_fraction
-                    wfi.sendLog('checkor', "overiding : event completion real %s expected %s for %s"%(event_count, output_event_expected, output))
+            #if output_event_expected:
+            #    expectedN[output] = output_event_expected
+            #    e_fraction = float(event_count) / float( output_event_expected )
+            #    if e_fraction > percent_completions[output]:
+            #        percent_completions[output] = e_fraction
+            #        wfi.sendLog('checkor', "overiding : event completion real %s expected %s for %s"%(event_count, output_event_expected, output))
 
 
             percent_avg_completions[output] = percent_completions[output]
@@ -940,12 +942,14 @@ class CheckBuster(threading.Thread):
 
         if not all(pass_stats_check.values()):
             possible_recoveries = wfi.getRecoveryDoc()
-            if possible_recoveries == []:
+            if possible_recoveries == [] or possible_recoveries == None:
                 wfi.sendLog('checkor','%s has missing statistics \n%s \n%s, but nothing is recoverable. passing through to annoucement'%( 
                         wfo.name, json.dumps(percent_completions, indent=2), json.dumps(fractions_pass, indent=2) ))
                 sendLog('checkor','%s is not completed, but has nothing to be recovered, passing along ?'%wfo.name, level='critical')
                 ## do not bypass for now, until Alan understands why we are loosing ACDC docs 
                 bypass_checks = True
+                is_closing = False
+                assistance_tags.add('noRecoveryDoc')
             else:
                 wfi.sendLog('checkor','%s is not completed.\nCurrent stats:\n%s \nRequired stats:\n%s'%( 
                         wfo.name, json.dumps(percent_completions, indent=2), json.dumps(fractions_pass, indent=2) ))
@@ -980,7 +984,7 @@ class CheckBuster(threading.Thread):
         lumi_upper_limit = {}
         lumi_lower_limit = UC.get("min_events_per_lumi_output") 
         for output in wfi.request['OutputDatasets']:
-            upper_limit = 1001.
+            upper_limit = 1101.
             campaign = campaigns[output]
 
             if campaign in CI.campaigns and 'lumisize' in CI.campaigns[campaign]:
@@ -993,12 +997,6 @@ class CheckBuster(threading.Thread):
                 
             lumi_upper_limit[output] = upper_limit
             if wfi.request['RequestType'] in ['ReDigi','ReReco']: lumi_upper_limit[output] = -1
-        
-        if (not wfi.isRelval()) and (not prim) and any([ (events_per_lumi[out] <= lumi_lower_limit) for out in events_per_lumi if not out.endswith(('DQMIO','ALCARECO'))]):
-            wfi.sendLog('checkor',"%s has very small lumisections\n%s"%( wfo.name, json.dumps(events_per_lumi, indent=2)))
-            assistance_tags.add('smalllumi')
-            is_closing = False
-            stop_duplicate_check = True
 
         if any([ (lumi_upper_limit[out]>0 and events_per_lumi[out] >= lumi_upper_limit[out]) for out in events_per_lumi]):
             wfi.sendLog('checkor',"%s has large lumisections\n%s"%( wfo.name, json.dumps(events_per_lumi, indent=2)))
@@ -1550,38 +1548,43 @@ class CheckBuster(threading.Thread):
                     self.to_status = new_status
             else:
                 print "current status is",wfo.status,"not changing to anything"
-        
-            pop_a_jira = False
-            ## rereco and manual => jira
-            if 'manual' in self.to_status and 'ReReco' in wfi.request['RequestType']:
-                pop_a_jira = True
-            ## end of first round acdc => jira
-            if 'recovered' in self.to_status and 'manual' in self.to_status:
-                pop_a_jira = True
-            ## create a jira in certain cases
-            if pop_a_jira and JC:
-                jiras = JC.find( {'prepid' : wfi.request['PrepID']})
-                j_comment = None
-                j = None
-                if len(jiras)==0:
-                    ## then you can create one
-                    j = JC.create( 
-                        {
-                            'priority' : wfi.request['RequestPriority'],
-                            'summary' : '%s issues'% wfi.request['PrepID'],
-                            'label' : 'WorkflowTrafficController',
-                            'description' : 'https://dmytro.web.cern.ch/dmytro/cmsprodmon/workflows.php?prep_id=%s \nAutomatic JIRA from unified'%( wfi.request['PrepID'])
-                        } 
-                    )
-                    j_comment = "Appears in %s"%(self.to_status)
-                else:
-                    ## pick up the last one
-                    print "a jira already exists, taking the last one"
-                    j = sorted(jiras, key= lambda o:JC.created(o))[-1]
-                    if JC.reopen(j.key):
-                        j_comment = "Came back in %s"%(self.to_status)
-                if j and j_comment:
-                    JC.comment(j.key,j_comment)
+
+            try:
+                pop_a_jira = False
+                ## rereco and manual => jira
+                if 'manual' in self.to_status:
+                    pop_a_jira = True
+                ## end of first round acdc => jira
+                if 'recovered' in self.to_status and 'manual' in self.to_status:
+                    pop_a_jira = True
+                ## create a jira in certain cases
+                if pop_a_jira and JC:
+                    jiras = JC.find( {'prepid' : wfi.request['PrepID']})
+                    j_comment = None
+                    j = None
+                    if len(jiras)==0:
+                        ## then you can create one
+                        j = JC.create(
+                            {
+                                'priority' : wfi.request['RequestPriority'],
+                                'summary' : '%s issues'% wfi.request['PrepID'],
+                                'label' : 'WorkflowTrafficController',
+                                'description' : 'https://dmytro.web.cern.ch/dmytro/cmsprodmon/workflows.php?prep_id=%s \nAutomatic JIRA from unified'%( wfi.request['PrepID'])
+                            }
+                        )
+                        j_comment = "Appears in %s"%(self.to_status)
+                    else:
+                        ## pick up the last one
+                        print "a jira already exists, taking the last one"
+                        j = sorted(jiras, key= lambda o:JC.created(o))[-1]
+                        if JC.reopen(j.key):
+                            j_comment = "Came back in %s"%(self.to_status)
+                    if j and j_comment:
+                        JC.comment(j.key,j_comment)
+            except Exception as e:
+                print "JIRA Failure:", str(e)
+                import traceback
+                print traceback.format_exc()
 
 if __name__ == "__main__":
     url = reqmgr_url

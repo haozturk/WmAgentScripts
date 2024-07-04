@@ -10,6 +10,7 @@ Environment:
 """
 
 from rucio.client import Client
+from WMCore.Services.CRIC.CRIC import CRIC
 
 class RucioClient(Client):
     """
@@ -95,4 +96,24 @@ class RucioClient(Client):
             print(str(e))
             return []
         return blocks
+
+    def getDatasetLocationsByAccount(self, dataset, account):
+        """
+        Returns the dataset locations for the given account in terms of computing element (not RSE name). 
+        This function assumes that the returned RSE expression includes only one RSE 
+        """
+        try:
+            rules = self.list_did_rules(self.scope, dataset)
+            for rule in rules:
+                if rule['account'] == account:
+                    RSEs = rule['rse_expression'].split("|")
+
+            #RSE to CE conversion
+            cric = CRIC()
+            CEs = cric.PNNstoPSNs(RSEs)
+        except Exception as e:
+            print "Exception while getting the dataset location"
+            print(str(e))
+            return []
+        return CEs
 
